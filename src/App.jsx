@@ -23,7 +23,7 @@ const PRIO = {
   low:    { label:"ต่ำ",   color:"#4ade80", dot:"🟢" },
 };
 
-/* ─── Anthropic API wrapper (ผ่าน proxy /api/claude เพื่อซ่อน API key) ─── */
+/* ─── Anthropic API wrapper ─── */
 async function claudeAPI(userMsg, systemMsg = "", mcpServers = [], tools = []) {
   const body = {
     model: "claude-sonnet-4-20250514",
@@ -33,7 +33,7 @@ async function claudeAPI(userMsg, systemMsg = "", mcpServers = [], tools = []) {
   };
   if (mcpServers.length) body.mcp_servers = mcpServers;
   if (tools.length)      body.tools       = tools;
-  const res = await fetch("/api/claude", {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
     method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body),
   });
   return await res.json();
@@ -45,7 +45,7 @@ const GCAL_MCP = [{ type:"url", url:"https://gcal.mcp.claude.com/mcp", name:"gca
 async function gcal(action, params) {
   const data = await claudeAPI(
     JSON.stringify({ action, params }),
-    `You are a Google Calendar assistant. Use MCP tools to perform: ${action}.
+    `You are a Google Calendar assistant. Use MCP tools to perform: ${action}. 
 Reply ONLY with valid JSON: {"success":bool,"events":[],"message":""}. No markdown.`,
     GCAL_MCP
   );
@@ -69,7 +69,7 @@ export default function MyDay() {
   const [gcalEvents,   setGcalEvents]      = useState([]);
   const [todos,        setTodos]           = useState(loadTodos);
   const [loading,      setLoading]         = useState(false);
-  const [tab,          setTab]             = useState("day");   // day | calendar | todos
+  const [tab,          setTab]             = useState("home");  // home | day
   const [modal,        setModal]           = useState(null);    // null | "event" | "todo"
   const [editTarget,   setEditTarget]      = useState(null);
   const [notif,        setNotif]           = useState(null);
@@ -291,37 +291,156 @@ Todo วันนี้:\n${todoSum||"ไม่มี"}
         </div>
       )}
 
-      {/* ── Top Bar ── */}
-      <div style={{ background:"#0d0d1e", borderBottom:"1px solid #1a1a30", padding:"12px 20px",
-        display:"flex", alignItems:"center", gap:14, flexWrap:"wrap" }}>
-        <div style={{ fontSize:20, fontWeight:700, color:"#7b9ef7", letterSpacing:.5 }}>
-          ✦ MyDay
-        </div>
-        <div style={{ display:"flex", gap:4, flex:1, flexWrap:"wrap" }}>
-          {[["day","📅 วันนี้"],["calendar","🗓️ ปฏิทิน"],["todos","✅ งานทั้งหมด"]].map(([k,l])=>(
-            <div key={k} className={`tab ${tab===k?"active":""}`} onClick={()=>setTab(k)}>{l}</div>
-          ))}
-        </div>
-        <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-          {incompleteCt > 0 && (
-            <div className="chip" style={{ background:"#3b1f1f", color:"#f87171" }}>
-              {incompleteCt} งานค้าง
-            </div>
-          )}
-          <button className="btn btn-ghost btn-sm" onClick={()=>setAiOpen(v=>!v)}
-            style={{ color: aiOpen?"#a78bfa":"#888" }}>🤖 AI</button>
-        </div>
-      </div>
 
       {/* ── Main Layout ── */}
       <div style={{ flex:1, display:"flex", overflow:"hidden" }}>
 
-        {/* ════ TAB: DAY ════ */}
+        {/* ════ HOME: CALENDAR + ALL TODOS ════ */}
+        {tab==="home" && (
+          <div style={{ flex:1, overflow:"auto", padding:16, display:"flex", flexDirection:"column", gap:14 }}>
+
+            {/* App title bar */}
+            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+              <div style={{ fontSize:20, fontWeight:700, color:"#7b9ef7", letterSpacing:.5 }}>✦ MyDay</div>
+              <div style={{ flex:1 }} />
+              {incompleteCt > 0 && (
+                <div className="chip" style={{ background:"#3b1f1f", color:"#f87171" }}>{incompleteCt} งานค้าง</div>
+              )}
+              <button className="btn btn-ghost btn-sm" onClick={()=>setAiOpen(v=>!v)}
+                style={{ color: aiOpen?"#a78bfa":"#888" }}>🤖 AI</button>
+            </div>
+
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, alignItems:"start" }}>
+
+              {/* ── Calendar ── */}
+              <div className="card fade-in">
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
+                  <span style={{ fontWeight:600, fontSize:15, color:"#7b9ef7" }}>🗓️ ปฏิทิน</span>
+                  <div style={{ flex:1 }} />
+                  <button className="btn btn-ghost btn-sm" onClick={()=>setCalMonth(new Date(yr,mo-1))}>‹</button>
+                  <span style={{ fontSize:13, fontWeight:600, color:"#c8d4ff", minWidth:90, textAlign:"center" }}>
+                    {MONTHS_TH[mo]} {yr+543}
+                  </span>
+                  <button className="btn btn-ghost btn-sm" onClick={()=>setCalMonth(new Date(yr,mo+1))}>›</button>
+                  <button className="btn btn-ghost btn-sm" onClick={()=>setCalMonth(new Date(today.getFullYear(),today.getMonth()))}>เดือนนี้</button>
+                  <button className="btn btn-blue btn-sm" onClick={()=>openNewEvent(selectedDate)}>+ เพิ่ม</button>
+                </div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:3, marginBottom:4 }}>
+                  {DAYS_TH.map(d=><div key={d} style={{ textAlign:"center", fontSize:11, color:"#444", fontWeight:600, paddingBottom:4 }}>{d}</div>)}
+                </div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:3 }}>
+                  {Array.from({length:firstDay}).map((_,i)=><div key={"e"+i}/>)}
+                  {Array.from({length:daysInMo},(_,i)=>i+1).map(d=>{
+                    const isToday = today.getDate()===d && today.getMonth()===mo && today.getFullYear()===yr;
+                    const thisDk  = `${yr}-${pad(mo+1)}-${pad(d)}`;
+                    const selDk   = dateKey(selectedDate);
+                    const isSel   = selDk===thisDk;
+                    const dayEvs  = gcalByDate(d);
+                    const dayTodos= todos.filter(t=>t.date===thisDk);
+                    return (
+                      <div key={d} className={`cal-cell ${isToday?"today-ring":""} ${isSel?"selected-cell":""}`}
+                        onClick={()=>{ setSelectedDate(new Date(yr,mo,d)); setTab("day"); }}>
+                        <div style={{ fontSize:12, fontWeight:isSel||isToday?700:400, color:isToday?"#7b9ef7":isSel?"#a0b4ff":"#666", marginBottom:2 }}>
+                          {d}
+                        </div>
+                        {dayEvs.slice(0,2).map((ev,i)=>(
+                          <div key={i} style={{ fontSize:9, padding:"1px 4px", borderRadius:3, background:evColor(ev), color:"#fff",
+                            marginBottom:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                            {ev.summary}
+                          </div>
+                        ))}
+                        {dayTodos.filter(t=>!t.done).length>0 && (
+                          <div style={{ fontSize:9, color:"#a78bfa", marginTop:1 }}>○ {dayTodos.filter(t=>!t.done).length}</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* ── All Todos ── */}
+              <div className="card fade-in" style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  <span style={{ fontWeight:600, fontSize:15, color:"#a78bfa" }}>✅ งานทั้งหมด</span>
+                  <div style={{ flex:1 }} />
+                  <button className="btn btn-blue btn-sm" onClick={openNewTodo}>+ งานใหม่</button>
+                </div>
+
+                {/* stats */}
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:6 }}>
+                  {[
+                    ["ทั้งหมด", todos.length, "#3b5eda"],
+                    ["เสร็จแล้ว", todos.filter(t=>t.done).length, "#10b981"],
+                    ["ค้างอยู่", todos.filter(t=>!t.done).length, "#f87171"],
+                    ["วันนี้", todosForDate(today).length, "#fb923c"],
+                  ].map(([l,v,c])=>(
+                    <div key={l} style={{ background:"#0d0d1e", border:`1px solid ${c}33`, borderRadius:10, padding:"8px 6px", textAlign:"center" }}>
+                      <div style={{ fontSize:18, fontWeight:700, color:c }}>{v}</div>
+                      <div style={{ fontSize:10, color:"#555", marginTop:1 }}>{l}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* group by date */}
+                <div style={{ maxHeight:480, overflowY:"auto" }}>
+                  {(() => {
+                    const grouped = {};
+                    [...todos].sort((a,b)=>a.date>b.date?-1:1).forEach(t=>{
+                      if (!grouped[t.date]) grouped[t.date]=[];
+                      grouped[t.date].push(t);
+                    });
+                    return Object.entries(grouped).map(([dk, list])=>{
+                      const d = new Date(dk+"T00:00:00");
+                      const isToday = dk===dateKey(today);
+                      return (
+                        <div key={dk} style={{ marginBottom:12 }}>
+                          <div style={{ fontSize:11, color:isToday?"#7b9ef7":"#555", fontWeight:600, marginBottom:4, display:"flex", alignItems:"center", gap:6,
+                            cursor:"pointer" }}
+                            onClick={()=>{ setSelectedDate(new Date(dk+"T00:00:00")); setTab("day"); }}>
+                            {isToday && <span className="chip" style={{ background:"#1d2555", color:"#7b9ef7" }}>วันนี้</span>}
+                            <span style={{ textDecoration:"underline dotted" }}>
+                              {d.toLocaleDateString("th-TH",{weekday:"short",day:"numeric",month:"short"})}
+                            </span>
+                          </div>
+                          {list.map(t=>(
+                            <div key={t.id} className="todo-row">
+                              <div className="todo-check" style={{ background:t.done?"#3b5eda":"transparent", borderColor:t.done?"#3b5eda":"#333" }}
+                                onClick={()=>toggleTodo(t.id)}>
+                                {t.done&&<span style={{ color:"#fff",fontSize:12 }}>✓</span>}
+                              </div>
+                              <div style={{ flex:1, cursor:"pointer" }} onClick={()=>openEditTodo(t)}>
+                                <div style={{ fontSize:13, fontWeight:500, textDecoration:t.done?"line-through":"none", color:t.done?"#444":"#ddd" }}>
+                                  {CAT[t.cat]?.icon} {t.text}
+                                </div>
+                                <div style={{ display:"flex", gap:5, marginTop:2, flexWrap:"wrap" }}>
+                                  <span className="chip" style={{ background:CAT[t.cat]?.color+"22", color:CAT[t.cat]?.color }}>{CAT[t.cat]?.label}</span>
+                                  <span style={{ fontSize:11, color:PRIO[t.prio]?.color }}>{PRIO[t.prio]?.dot} {PRIO[t.prio]?.label}</span>
+                                  {t.time && <span style={{ fontSize:11, color:"#555" }}>⏰ {t.time}</span>}
+                                </div>
+                              </div>
+                              <button className="btn btn-ghost btn-sm" style={{ padding:"3px 8px", color:"#555" }}
+                                onClick={()=>deleteTodo(t.id)}>✕</button>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    });
+                  })()}
+                  {todos.length===0 && <div style={{ textAlign:"center", color:"#333", padding:"30px 0", fontSize:13 }}>ยังไม่มีงานใดๆ</div>}
+                </div>
+              </div>
+
+            </div>
+          </div>
+        )}
+
+        {/* ════ DAY VIEW ════ */}
         {tab==="day" && (
           <div style={{ flex:1, overflow:"auto", padding:16, display:"flex", flexDirection:"column", gap:14 }}>
 
-            {/* Date nav */}
+            {/* Header with back button */}
             <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+              <button className="btn btn-ghost btn-sm" onClick={()=>setTab("home")} style={{ fontSize:16, padding:"5px 12px" }}>← กลับ</button>
               <button className="btn btn-ghost btn-sm" onClick={()=>{ const d=new Date(selectedDate); d.setDate(d.getDate()-1); setSelectedDate(d); }}>‹</button>
               <div style={{ flex:1, textAlign:"center" }}>
                 <div style={{ fontSize:18, fontWeight:700, color:"#c8d4ff" }}>
@@ -333,6 +452,7 @@ Todo วันนี้:\n${todoSum||"ไม่มี"}
               </div>
               <button className="btn btn-ghost btn-sm" onClick={()=>{ const d=new Date(selectedDate); d.setDate(d.getDate()+1); setSelectedDate(d); }}>›</button>
               <button className="btn btn-ghost btn-sm" onClick={()=>setSelectedDate(new Date())}>วันนี้</button>
+              <button className="btn btn-ghost btn-sm" onClick={()=>setAiOpen(v=>!v)} style={{ color:aiOpen?"#a78bfa":"#888" }}>🤖 AI</button>
             </div>
 
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
@@ -346,10 +466,10 @@ Todo วันนี้:\n${todoSum||"ไม่มี"}
                   <button className="btn btn-ghost btn-sm" onClick={()=>loadDay(selectedDate)}>↻</button>
                 </div>
                 {loading ? <div className="pulse" style={{ color:"#444", fontSize:13 }}>กำลังโหลด...</div>
-                  : gcalEvents.length === 0
+                  : gcalEvents.length===0
                     ? <div style={{ color:"#333", fontSize:13, textAlign:"center", padding:"20px 0" }}>ไม่มีกิจกรรม<br/><span style={{fontSize:11}}>กดเพิ่มเพื่อสร้างกิจกรรม</span></div>
-                    : gcalEvents.map((ev, i) => (
-                      <div key={i} className="ev-block" style={{ background: evColor(ev)+"22", borderLeft:`3px solid ${evColor(ev)}`, marginBottom:6 }}
+                    : gcalEvents.map((ev,i)=>(
+                      <div key={i} className="ev-block" style={{ background:evColor(ev)+"22", borderLeft:`3px solid ${evColor(ev)}`, marginBottom:6 }}
                         onClick={()=>openEditEvent(ev)}>
                         <div style={{ fontWeight:600, fontSize:13 }}>{ev.summary}</div>
                         <div style={{ fontSize:11, color:"#aaa", marginTop:2 }}>
@@ -361,7 +481,7 @@ Todo วันนี้:\n${todoSum||"ไม่มี"}
                 }
               </div>
 
-              {/* Todos for today */}
+              {/* Todos for day */}
               <div className="card fade-in">
                 <div style={{ display:"flex", alignItems:"center", marginBottom:10, gap:8 }}>
                   <span style={{ fontSize:15, fontWeight:600, color:"#a78bfa" }}>✅ To-Do วันนี้</span>
@@ -369,39 +489,34 @@ Todo วันนี้:\n${todoSum||"ไม่มี"}
                   <button className="btn btn-blue btn-sm" onClick={openNewTodo}>+ งานใหม่</button>
                 </div>
 
-                {/* progress */}
-                {todayTodos.length > 0 && (() => {
-                  const done = todayTodos.filter(t=>t.done).length;
-                  const pct = Math.round((done/todayTodos.length)*100);
+                {todayTodos.length>0 && (()=>{
+                  const done=todayTodos.filter(t=>t.done).length;
+                  const pct=Math.round((done/todayTodos.length)*100);
                   return (
                     <div style={{ marginBottom:10 }}>
                       <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:"#555", marginBottom:4 }}>
                         <span>เสร็จ {done}/{todayTodos.length}</span><span>{pct}%</span>
                       </div>
-                      <div className="progress-bar"><div className="progress-fill" style={{ width:`${pct}%` }} /></div>
+                      <div className="progress-bar"><div className="progress-fill" style={{ width:`${pct}%` }}/></div>
                     </div>
                   );
                 })()}
 
-                {todayTodos.length === 0
+                {todayTodos.length===0
                   ? <div style={{ color:"#333", fontSize:13, textAlign:"center", padding:"20px 0" }}>ยังไม่มีงานวันนี้</div>
-                  : todayTodos.map(t => (
+                  : todayTodos.map(t=>(
                     <div key={t.id} className="todo-row">
-                      <div className="todo-check" style={{ background: t.done?"#3b5eda":"transparent", borderColor: t.done?"#3b5eda":"#333" }}
+                      <div className="todo-check" style={{ background:t.done?"#3b5eda":"transparent", borderColor:t.done?"#3b5eda":"#333" }}
                         onClick={()=>toggleTodo(t.id)}>
-                        {t.done && <span style={{ color:"#fff", fontSize:12 }}>✓</span>}
+                        {t.done&&<span style={{ color:"#fff",fontSize:12 }}>✓</span>}
                       </div>
                       <div style={{ flex:1, cursor:"pointer" }} onClick={()=>openEditTodo(t)}>
-                        <div style={{ fontSize:13, fontWeight:500, textDecoration: t.done?"line-through":"none", color: t.done?"#444":"#ddd" }}>
+                        <div style={{ fontSize:13, fontWeight:500, textDecoration:t.done?"line-through":"none", color:t.done?"#444":"#ddd" }}>
                           {CAT[t.cat]?.icon} {t.text}
                         </div>
                         <div style={{ display:"flex", gap:6, marginTop:3, flexWrap:"wrap" }}>
-                          <span className="chip" style={{ background: CAT[t.cat]?.color+"22", color: CAT[t.cat]?.color }}>
-                            {CAT[t.cat]?.label}
-                          </span>
-                          <span style={{ fontSize:11, color: PRIO[t.prio]?.color }}>
-                            {PRIO[t.prio]?.dot} {PRIO[t.prio]?.label}
-                          </span>
+                          <span className="chip" style={{ background:CAT[t.cat]?.color+"22", color:CAT[t.cat]?.color }}>{CAT[t.cat]?.label}</span>
+                          <span style={{ fontSize:11, color:PRIO[t.prio]?.color }}>{PRIO[t.prio]?.dot} {PRIO[t.prio]?.label}</span>
                           {t.time && <span style={{ fontSize:11, color:"#666" }}>⏰ {t.time}</span>}
                         </div>
                         {t.note && <div style={{ fontSize:11, color:"#555", marginTop:2 }}>{t.note}</div>}
@@ -413,125 +528,6 @@ Todo วันนี้:\n${todoSum||"ไม่มี"}
                 }
               </div>
             </div>
-          </div>
-        )}
-
-        {/* ════ TAB: CALENDAR ════ */}
-        {tab==="calendar" && (
-          <div style={{ flex:1, overflow:"auto", padding:16 }}>
-            <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
-              <button className="btn btn-ghost btn-sm" onClick={()=>setCalMonth(new Date(yr, mo-1))}>‹</button>
-              <div style={{ flex:1, textAlign:"center", fontWeight:600, fontSize:16, color:"#c8d4ff" }}>
-                {MONTHS_TH[mo]} {yr+543}
-              </div>
-              <button className="btn btn-ghost btn-sm" onClick={()=>setCalMonth(new Date(yr, mo+1))}>›</button>
-              <button className="btn btn-ghost btn-sm" onClick={()=>setCalMonth(new Date(today.getFullYear(),today.getMonth()))}>เดือนนี้</button>
-              <button className="btn btn-blue btn-sm" onClick={()=>openNewEvent(selectedDate)}>+ เพิ่ม</button>
-            </div>
-
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:4, marginBottom:4 }}>
-              {DAYS_TH.map(d=><div key={d} style={{ textAlign:"center", fontSize:11, color:"#444", fontWeight:600 }}>{d}</div>)}
-            </div>
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:4 }}>
-              {Array.from({length:firstDay}).map((_,i)=><div key={"e"+i}/>)}
-              {Array.from({length:daysInMo},(_,i)=>i+1).map(d=>{
-                const isToday = today.getDate()===d && today.getMonth()===mo && today.getFullYear()===yr;
-                const selDk   = dateKey(selectedDate);
-                const thisDk  = `${yr}-${pad(mo+1)}-${pad(d)}`;
-                const isSel   = selDk === thisDk;
-                const dayEvs  = gcalByDate(d);
-                const dayTodos= todos.filter(t=>t.date===thisDk);
-                return (
-                  <div key={d} className={`cal-cell ${isToday?"today-ring":""} ${isSel?"selected-cell":""}`}
-                    onClick={()=>{ setSelectedDate(new Date(yr,mo,d)); setTab("day"); }}>
-                    <div style={{ fontSize:12, fontWeight:isSel||isToday?700:400, color:isToday?"#7b9ef7":isSel?"#a0b4ff":"#666", marginBottom:3 }}>
-                      {d}
-                    </div>
-                    {dayEvs.slice(0,2).map((ev,i)=>(
-                      <div key={i} style={{ fontSize:10, padding:"1px 5px", borderRadius:4, background:evColor(ev), color:"#fff",
-                        marginBottom:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                        {ev.summary}
-                      </div>
-                    ))}
-                    {dayTodos.filter(t=>!t.done).length>0 && (
-                      <div style={{ fontSize:10, color:"#a78bfa", marginTop:1 }}>
-                        ○ {dayTodos.filter(t=>!t.done).length}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* ════ TAB: ALL TODOS ════ */}
-        {tab==="todos" && (
-          <div style={{ flex:1, overflow:"auto", padding:16 }}>
-            <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
-              <span style={{ fontWeight:600, fontSize:16, color:"#a78bfa" }}>✅ งานทั้งหมด</span>
-              <div style={{ flex:1 }} />
-              <button className="btn btn-blue btn-sm" onClick={openNewTodo}>+ งานใหม่</button>
-            </div>
-
-            {/* stats */}
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
-              {[
-                ["ทั้งหมด", todos.length, "#3b5eda"],
-                ["เสร็จแล้ว", todos.filter(t=>t.done).length, "#10b981"],
-                ["ค้างอยู่", todos.filter(t=>!t.done).length, "#f87171"],
-                ["วันนี้", todosForDate(today).length, "#fb923c"],
-              ].map(([l,v,c])=>(
-                <div key={l} className="card" style={{ textAlign:"center", borderColor: c+"44" }}>
-                  <div style={{ fontSize:22, fontWeight:700, color:c }}>{v}</div>
-                  <div style={{ fontSize:11, color:"#555", marginTop:2 }}>{l}</div>
-                </div>
-              ))}
-            </div>
-
-            {/* group by date */}
-            {(() => {
-              const grouped = {};
-              [...todos].sort((a,b)=>a.date>b.date?-1:1).forEach(t=>{
-                if (!grouped[t.date]) grouped[t.date]=[];
-                grouped[t.date].push(t);
-              });
-              return Object.entries(grouped).map(([dk, list])=>{
-                const d = new Date(dk+"T00:00:00");
-                const isToday = dk===dateKey(today);
-                return (
-                  <div key={dk} style={{ marginBottom:16 }}>
-                    <div style={{ fontSize:12, color: isToday?"#7b9ef7":"#555", fontWeight:600, marginBottom:6, display:"flex", alignItems:"center", gap:6 }}>
-                      {isToday && <span className="chip" style={{ background:"#1d2555", color:"#7b9ef7" }}>วันนี้</span>}
-                      {d.toLocaleDateString("th-TH",{weekday:"short",day:"numeric",month:"short"})}
-                    </div>
-                    <div className="card" style={{ padding:"8px 12px" }}>
-                      {list.map(t=>(
-                        <div key={t.id} className="todo-row">
-                          <div className="todo-check" style={{ background:t.done?"#3b5eda":"transparent", borderColor:t.done?"#3b5eda":"#333" }}
-                            onClick={()=>toggleTodo(t.id)}>
-                            {t.done&&<span style={{ color:"#fff",fontSize:12 }}>✓</span>}
-                          </div>
-                          <div style={{ flex:1, cursor:"pointer" }} onClick={()=>openEditTodo(t)}>
-                            <div style={{ fontSize:13, fontWeight:500, textDecoration:t.done?"line-through":"none", color:t.done?"#444":"#ddd" }}>
-                              {CAT[t.cat]?.icon} {t.text}
-                            </div>
-                            <div style={{ display:"flex", gap:6, marginTop:2 }}>
-                              <span className="chip" style={{ background:CAT[t.cat]?.color+"22", color:CAT[t.cat]?.color }}>{CAT[t.cat]?.label}</span>
-                              <span style={{ fontSize:11, color:PRIO[t.prio]?.color }}>{PRIO[t.prio]?.dot} {PRIO[t.prio]?.label}</span>
-                              {t.time && <span style={{ fontSize:11, color:"#555" }}>⏰ {t.time}</span>}
-                            </div>
-                          </div>
-                          <button className="btn btn-ghost btn-sm" style={{ padding:"3px 8px", color:"#555" }}
-                            onClick={()=>deleteTodo(t.id)}>✕</button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              });
-            })()}
-            {todos.length===0 && <div style={{ textAlign:"center", color:"#333", padding:"40px 0" }}>ยังไม่มีงานใดๆ</div>}
           </div>
         )}
 
