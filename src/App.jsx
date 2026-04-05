@@ -81,55 +81,6 @@ export default function MyDay() {
   const [evForm, setEvForm] = useState({});
   const [todoForm, setTodoForm] = useState({});
   const aiEndRef = useRef(null);
-  const notifTimers = useRef([]);
-
-  /* ── Notification permission ── */
-  const [notifPerm, setNotifPerm] = useState(() =>
-    ('Notification' in window) ? Notification.permission : 'default'
-  );
-
-  const enableNotifications = async () => {
-    if (!('Notification' in window)) { notify('เบราว์เซอร์ไม่รองรับการแจ้งเตือน', 'err'); return; }
-    const perm = await Notification.requestPermission();
-    setNotifPerm(perm);
-    if (perm === 'granted') notify('✅ เปิดการแจ้งเตือนแล้ว');
-    else notify('❌ ถูกปฏิเสธการแจ้งเตือน', 'err');
-  };
-
-  const scheduleNotifs = useCallback((todoList) => {
-    if (!('Notification' in window) || Notification.permission !== 'granted') return;
-    // Clear previous timers
-    notifTimers.current.forEach(clearTimeout);
-    notifTimers.current = [];
-    const todayKey = dateKey(new Date());
-    const now = new Date();
-    todoList.filter(t => t.date === todayKey && t.time && !t.done).forEach(t => {
-      const [h, m] = t.time.split(':').map(Number);
-      const taskTime = new Date(); taskTime.setHours(h, m, 0, 0);
-      const delay = taskTime - now;
-      if (delay > 0 && delay < 24 * 60 * 60 * 1000) {
-        const id = setTimeout(async () => {
-          const sw = await navigator.serviceWorker?.ready;
-          if (sw?.active) {
-            sw.active.postMessage({
-              type: 'SHOW_NOTIFICATION',
-              title: `⏰ ${t.text}`,
-              body: `${CAT[t.cat]?.icon} ${CAT[t.cat]?.label} · ${PRIO[t.prio]?.label}`,
-              tag: t.id,
-            });
-          } else {
-            new Notification(`⏰ ${t.text}`, {
-              body: `${CAT[t.cat]?.icon} ${CAT[t.cat]?.label} · ${PRIO[t.prio]?.label}`,
-              icon: '/icon.svg', tag: t.id,
-            });
-          }
-        }, delay);
-        notifTimers.current.push(id);
-      }
-    });
-  }, []);
-
-  useEffect(() => { scheduleNotifs(todos); }, [todos, scheduleNotifs]);
 
   /* notify helper */
   const notify = (msg, type="ok") => {
@@ -364,10 +315,6 @@ Todo วันนี้:\n${todoSum||"ไม่มี"}
               {incompleteCt > 0 && (
                 <div className="chip" style={{ background:"#3b1f1f", color:"#f87171" }}>{incompleteCt} งานค้าง</div>
               )}
-              <button className="btn btn-ghost btn-sm" title={notifPerm==='granted'?"แจ้งเตือนเปิดอยู่":"เปิดการแจ้งเตือน"} onClick={enableNotifications}
-                style={{ color: notifPerm==='granted'?"#4ade80":"#888", fontSize:15 }}>
-                {notifPerm==='granted'?'🔔':'🔕'}
-              </button>
               <button className="btn btn-ghost btn-sm" onClick={()=>setAiOpen(v=>!v)}
                 style={{ color: aiOpen?"#a78bfa":"#888" }}>🤖 AI</button>
             </div>
