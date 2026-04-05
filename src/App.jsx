@@ -84,7 +84,9 @@ export default function MyDay() {
   const notifTimers = useRef([]);
 
   /* ── Notification permission ── */
-  const [notifPerm, setNotifPerm] = useState(() => Notification?.permission || 'default');
+  const [notifPerm, setNotifPerm] = useState(() =>
+    ('Notification' in window) ? Notification.permission : 'default'
+  );
 
   const enableNotifications = async () => {
     if (!('Notification' in window)) { notify('เบราว์เซอร์ไม่รองรับการแจ้งเตือน', 'err'); return; }
@@ -95,7 +97,7 @@ export default function MyDay() {
   };
 
   const scheduleNotifs = useCallback((todoList) => {
-    if (Notification?.permission !== 'granted') return;
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
     // Clear previous timers
     notifTimers.current.forEach(clearTimeout);
     notifTimers.current = [];
