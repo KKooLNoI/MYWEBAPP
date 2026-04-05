@@ -1,0 +1,20 @@
+{
+  "name": "MyDay - ตารางงานส่วนตัว",
+  "short_name": "MyDay",
+  "description": "จัดการตารางงานและปฏิทินส่วนตัว",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0a0a14",
+  "theme_color": "#7b9ef7",
+  "orientation": "portrait-primary",
+  "lang": "th",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
