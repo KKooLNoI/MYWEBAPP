@@ -108,7 +108,7 @@ export default function MyDay() {
       if (delay > 0 && delay < 24 * 60 * 60 * 1000) {
         const id = setTimeout(async () => {
           const sw = await navigator.serviceWorker?.ready;
-          if (sw) {
+          if (sw?.active) {
             sw.active.postMessage({
               type: 'SHOW_NOTIFICATION',
               title: `⏰ ${t.text}`,
@@ -329,6 +329,15 @@ Todo วันนี้:\n${todoSum||"ไม่มี"}
         .today-ring{background:#1d2560;border-color:#4060d0}
         .selected-cell{background:#131340 !important;border-color:#4f6ef7 !important}
         .fade-in{animation:fi .3s ease}@keyframes fi{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+        .two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+        .day-two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+        @media(max-width:700px){
+          .two-col{grid-template-columns:1fr !important}
+          .day-two-col{grid-template-columns:1fr !important}
+          .cal-cell{min-height:44px;padding:3px}
+          .modal{padding:18px}
+          .btn-sm{padding:5px 8px;font-size:11px}
+        }
       `}</style>
 
       {/* ── Notification ── */}
@@ -361,7 +370,7 @@ Todo วันนี้:\n${todoSum||"ไม่มี"}
                 style={{ color: aiOpen?"#a78bfa":"#888" }}>🤖 AI</button>
             </div>
 
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, alignItems:"start" }}>
+            <div className="two-col">
 
               {/* ── Calendar ── */}
               <div className="card fade-in">
@@ -506,7 +515,7 @@ Todo วันนี้:\n${todoSum||"ไม่มี"}
               <button className="btn btn-ghost btn-sm" onClick={()=>setAiOpen(v=>!v)} style={{ color:aiOpen?"#a78bfa":"#888" }}>🤖 AI</button>
             </div>
 
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
+            <div className="day-two-col">
 
               {/* Google Calendar events */}
               <div className="card fade-in">
