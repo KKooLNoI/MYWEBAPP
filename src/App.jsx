@@ -50,7 +50,7 @@ async function gcal(action, params) {
 const DEFAULT_WATCHLIST = ["PTT.BK","ADVANC.BK","SCB.BK","KBANK.BK","AOT.BK","GC=F","BTC-USD"];
 
 /* ════════════════════════════════════════════════════════════ */
-export default function App() {
+export default function App({ username = "", onLogout }) {
   const today = new Date();
 
   /* ── global state ── */
@@ -310,7 +310,18 @@ export default function App() {
             <div style={{ fontSize:13, color:"#555", marginTop:4 }}>{dateStr}</div>
           </div>
           <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:6 }}>
-            <div style={{ fontSize:20, fontWeight:700, color:"#a78bfa" }}>✦ MyDay</div>
+            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+              <div style={{ fontSize:20, fontWeight:700, color:"#a78bfa" }}>✦ MyDay</div>
+            </div>
+            {username && (
+              <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                <div style={{ fontSize:12, color:"#555" }}>👤 {username}</div>
+                <button className="btn btn-ghost btn-sm" style={{ fontSize:11, padding:"3px 8px", color:"#555" }}
+                  onClick={()=>{ if(confirm("ออกจากระบบ?")) onLogout(); }}>
+                  ออก
+                </button>
+              </div>
+            )}
             {notifPerm !== "granted" && (
               <button className="btn btn-ghost btn-sm" onClick={requestNotif} style={{ fontSize:11 }}>
                 🔔 เปิดแจ้งเตือน
