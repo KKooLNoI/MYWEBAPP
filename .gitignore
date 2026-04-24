@@ -3,3 +3,7 @@ dist/
 .env.local
 .env
 .vercel/
+.DS_Store
+data.db
+data.db-shm
+data.db-wal
