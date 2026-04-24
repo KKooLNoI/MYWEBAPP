@@ -4,8 +4,8 @@ import { api, clearToken } from "./api.js";
 /* ─── helpers ─── */
 const pad = n => String(n).padStart(2, "0");
 const dateKey = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-const toLocal = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-const toISO = s => new Date(s).toISOString();
+
+const EV_COLORS = ["#3b5eda","#10b981","#f59e0b","#ef4444","#8b5cf6","#ec4899","#06b6d4","#f97316"];
 
 const DAYS_TH   = ["อา","จ","อ","พ","พฤ","ศ","ส"];
 const MONTHS_TH = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
@@ -31,22 +31,12 @@ const FIN_CATS = {
 const DEFAULT_WATCHLIST = ["PTT.BK","ADVANC.BK","SCB.BK","KBANK.BK","GC=F","BTC-USD"];
 
 /* ─── Claude API (through proxy) ─── */
-async function claudeAPI(userMsg, systemMsg = "", mcpServers = []) {
+async function claudeAPI(userMsg, systemMsg = "") {
   const body = { model:"claude-sonnet-4-20250514", max_tokens:1000, system:systemMsg,
     messages:[{ role:"user", content:userMsg }] };
-  if (mcpServers.length) body.mcp_servers = mcpServers;
   const res = await fetch("/api/claude", { method:"POST",
     headers:{"Content-Type":"application/json"}, body:JSON.stringify(body) });
   return res.json();
-}
-const GCAL_MCP = [{ type:"url", url:"https://gcal.mcp.claude.com/mcp", name:"gcal" }];
-async function gcalAPI(action, params) {
-  const data = await claudeAPI(JSON.stringify({ action, params }),
-    `You are a Google Calendar assistant. Use MCP tools to perform: ${action}. Reply ONLY with valid JSON: {"success":bool,"events":[],"message":""}. No markdown.`,
-    GCAL_MCP);
-  const text = data.content?.filter(b=>b.type==="text").map(b=>b.text).join("") || "{}";
-  try { return JSON.parse(text.replace(/```json|```/g,"").trim()); }
-  catch { return { success:false, message:text }; }
 }
 
 /* ════════════════════════════════════════════════════════════ */
@@ -64,8 +54,8 @@ export default function App({ username = "", onLogout }) {
   const [selectedDate, setSelectedDate] = useState(today);
   const [todos,        setTodos]        = useState([]);
   const [todosLoading, setTodosLoading] = useState(true);
-  const [gcalEvents,   setGcalEvents]   = useState([]);
-  const [gcalLoading,  setGcalLoading]  = useState(false);
+  const [events,       setEvents]       = useState([]);
+  const [eventsLoading,setEventsLoading]= useState(true);
   const [modal,        setModal]        = useState(null);
   const [editTarget,   setEditTarget]   = useState(null);
   const [evForm,       setEvForm]       = useState({});
@@ -112,6 +102,12 @@ export default function App({ username = "", onLogout }) {
     api.todos.getAll().then(setTodos).catch(()=>setTodos([])).finally(()=>setTodosLoading(false));
   }, []);
 
+  /* ─── load events from backend ─── */
+  useEffect(() => {
+    setEventsLoading(true);
+    api.events.getAll().then(setEvents).catch(()=>setEvents([])).finally(()=>setEventsLoading(false));
+  }, []);
+
   /* ─── load finance from backend ─── */
   useEffect(() => {
     setFinLoading(true);
@@ -130,16 +126,6 @@ export default function App({ username = "", onLogout }) {
     setTimeout(() => setNotif(null), 3000);
   };
 
-  /* ─── gcal ─── */
-  const loadGcal = useCallback(async (date) => {
-    setGcalLoading(true);
-    const dk = dateKey(date);
-    const res = await gcalAPI("list_events", { timeMin:`${dk}T00:00:00`, timeMax:`${dk}T23:59:59`, timeZone:"Asia/Bangkok" });
-    const raw = res?.events || [];
-    setGcalEvents(Array.isArray(raw) ? raw : (raw?.items || []));
-    setGcalLoading(false);
-  }, []);
-  useEffect(() => { loadGcal(selectedDate); }, [selectedDate, loadGcal]);
 
   /* ─── market fetch ─── */
   const fetchMarket = useCallback(async () => {
@@ -164,43 +150,40 @@ export default function App({ username = "", onLogout }) {
   const tomorrowDate = new Date(selectedDate); tomorrowDate.setDate(tomorrowDate.getDate()+1);
   const tomorrowTodos = todosForDate(tomorrowDate);
 
-  const GCAL_COLORS = { "1":"#7986CB","2":"#33B679","3":"#8E24AA","4":"#E67C73","5":"#F6BF26","6":"#F4511E","7":"#039BE5","8":"#616161","9":"#3F51B5","10":"#0B8043","11":"#D50000" };
-  const evColor = ev => GCAL_COLORS[ev.colorId] || "#039BE5";
-  const formatTime = dt => { if (!dt) return ""; const d=new Date(dt); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+  const eventsForDate = (date) => events.filter(e => e.date === dateKey(date))
+    .sort((a,b) => (a.start_time||"") > (b.start_time||"") ? 1 : -1);
+  const todayEvents = eventsForDate(selectedDate);
 
   /* ─── event modal ─── */
   const openNewEvent = () => {
-    const d = new Date(selectedDate);
-    setEvForm({ summary:"", description:"", location:"", colorId:"7",
-      start:toLocal(new Date(d.setHours(9,0,0,0))),
-      end:toLocal(new Date(new Date(selectedDate).setHours(10,0,0,0))), allDay:false });
+    setEvForm({ title:"", date:dateKey(selectedDate), start_time:"09:00", end_time:"10:00", note:"", color:"#3b5eda" });
     setEditTarget(null); setModal("event");
   };
   const openEditEvent = (ev) => {
-    const s = ev.start?.dateTime||ev.start?.date||"";
-    const e = ev.end?.dateTime||ev.end?.date||"";
-    setEvForm({ summary:ev.summary||"", description:ev.description||"", location:ev.location||"",
-      colorId:ev.colorId||"7", start:s?toLocal(new Date(s)):toLocal(new Date()),
-      end:e?toLocal(new Date(e)):toLocal(new Date(Date.now()+3600000)), allDay:!!ev.allDay });
+    setEvForm({ title:ev.title, date:ev.date, start_time:ev.start_time, end_time:ev.end_time, note:ev.note, color:ev.color });
     setEditTarget(ev); setModal("event");
   };
   const saveEvent = async () => {
-    if (!evForm.summary.trim()) { notify("กรุณาใส่ชื่อกิจกรรม","err"); return; }
-    setGcalLoading(true);
-    const payload = { summary:evForm.summary, description:evForm.description, location:evForm.location, colorId:evForm.colorId,
-      start:evForm.allDay?{date:evForm.start.split("T")[0]}:{dateTime:toISO(evForm.start),timeZone:"Asia/Bangkok"},
-      end:evForm.allDay?{date:evForm.end.split("T")[0]}:{dateTime:toISO(evForm.end),timeZone:"Asia/Bangkok"} };
-    const action = editTarget?.id ? "update_event" : "create_event";
-    const params = editTarget?.id ? {calendarId:"primary",eventId:editTarget.id,event:payload} : {calendarId:"primary",event:payload};
-    await gcalAPI(action, params);
-    notify(editTarget?.id ? "✅ แก้ไขแล้ว" : "✅ เพิ่มกิจกรรมแล้ว");
-    setModal(null); await loadGcal(selectedDate); setGcalLoading(false);
+    if (!evForm.title.trim()) { notify("กรุณาใส่ชื่อกิจกรรม","err"); return; }
+    try {
+      if (editTarget) {
+        await api.events.update(editTarget.id, evForm);
+        setEvents(p => p.map(e => e.id===editTarget.id ? {...evForm, id:e.id} : e));
+        notify("✅ แก้ไขกิจกรรมแล้ว");
+      } else {
+        const newEv = { ...evForm, id: Date.now().toString() };
+        await api.events.create(newEv);
+        setEvents(p => [...p, newEv]);
+        notify("✅ เพิ่มกิจกรรมแล้ว");
+      }
+      setModal(null);
+    } catch (err) { notify(err.message, "err"); }
   };
   const deleteEvent = async (ev) => {
-    if (!confirm(`ลบ "${ev.summary}"?`)) return;
-    setGcalLoading(true);
-    await gcalAPI("delete_event", {calendarId:"primary",eventId:ev.id});
-    notify("🗑️ ลบแล้ว"); setModal(null); await loadGcal(selectedDate); setGcalLoading(false);
+    if (!confirm(`ลบ "${ev.title}"?`)) return;
+    setEvents(p => p.filter(e => e.id !== ev.id));
+    try { await api.events.delete(ev.id); notify("🗑️ ลบแล้ว"); setModal(null); }
+    catch (err) { notify(err.message, "err"); api.events.getAll().then(setEvents); }
   };
 
   /* ─── todo helpers ─── */
@@ -284,12 +267,12 @@ export default function App({ username = "", onLogout }) {
     if (!aiInput.trim()) return;
     const userMsg = aiInput.trim(); setAiInput("");
     setAiChat(p => [...p, { role:"user", text:userMsg }]); setAiLoading(true);
-    const evSummary = gcalEvents.slice(0,6).map(e=>`• ${e.summary} (${(e.start?.dateTime||e.start?.date||"").replace("T"," ").slice(0,16)})`).join("\n");
+    const evSummary = todayEvents.map(e=>`• ${e.title}${e.start_time ? ` (${e.start_time}${e.end_time?" – "+e.end_time:""})` : ""}`).join("\n");
     const todoSum   = todayTodos.map(t=>`• [${t.done?"✓":"○"}] ${t.text}`).join("\n");
     const data = await claudeAPI(userMsg,
       `คุณเป็น AI ผู้ช่วยส่วนตัว ชื่อ "MyDay" ตอบภาษาไทย กระชับ เป็นมิตร
 วันที่เลือก: ${selectedDate.toLocaleDateString("th-TH",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}
-กิจกรรมใน Google Calendar:\n${evSummary||"ไม่มี"}
+กิจกรรมวันนี้:\n${evSummary||"ไม่มี"}
 Todo วันนี้:\n${todoSum||"ไม่มี"}`);
     const reply = data.content?.filter(b=>b.type==="text").map(b=>b.text).join("") || "...";
     setAiChat(p => [...p, { role:"ai", text:reply }]); setAiLoading(false);
@@ -496,19 +479,23 @@ Todo วันนี้:\n${todoSum||"ไม่มี"}`);
                             const isToday = today.getDate()===d && today.getMonth()===mo && today.getFullYear()===yr;
                             const isSel   = dateKey(selectedDate) === dk;
                             const hasTodo = todos.some(t=>t.date===dk && !t.done);
+                            const hasEvent = events.some(e=>e.date===dk);
                             return (
                               <div key={d} className={`cal-cell ${isToday?"today-ring":""} ${isSel?"selected-cell":""}`}
                                 onClick={()=>setSelectedDate(new Date(yr,mo,d))}>
                                 <div style={{ fontSize:12, fontWeight:isToday||isSel?700:400,
                                   color:isToday?"#7b9ef7":isSel?"#a0b4ff":"#888" }}>{d}</div>
-                                {hasTodo && <div style={{ width:5,height:5,borderRadius:"50%",background:"#a78bfa",margin:"2px auto 0" }}/>}
+                                <div style={{ display:"flex", justifyContent:"center", gap:2, marginTop:2 }}>
+                                  {hasEvent && <div style={{ width:5,height:5,borderRadius:"50%",background:"#7b9ef7" }}/>}
+                                  {hasTodo  && <div style={{ width:5,height:5,borderRadius:"50%",background:"#a78bfa" }}/>}
+                                </div>
                               </div>
                             );
                           })}
                         </div>
                       </div>
 
-                      {/* Google Calendar events */}
+                      {/* Events for selected date */}
                       <div className="card" style={{ marginBottom:14 }}>
                         <div style={{ display:"flex", alignItems:"center", marginBottom:8 }}>
                           <span className="section-title" style={{ color:"#7b9ef7", margin:0, fontSize:13 }}>
@@ -516,20 +503,25 @@ Todo วันนี้:\n${todoSum||"ไม่มี"}`);
                           </span>
                           <div style={{ flex:1 }}/>
                           <button className="btn btn-blue btn-sm" onClick={openNewEvent}>+ เพิ่ม</button>
-                          <button className="btn btn-ghost btn-sm" style={{ marginLeft:4 }} onClick={()=>loadGcal(selectedDate)}>↻</button>
                         </div>
-                        {gcalLoading ? (
+                        {eventsLoading ? (
                           <div className="pulse" style={{ color:"#444", fontSize:12, padding:"8px 0" }}>กำลังโหลด...</div>
-                        ) : gcalEvents.length === 0 ? (
-                          <div style={{ color:"#333", fontSize:12, textAlign:"center", padding:"12px 0" }}>ไม่มีกิจกรรม</div>
-                        ) : gcalEvents.map((ev,i) => (
-                          <div key={i} className="ev-block" style={{ background:evColor(ev)+"22", borderLeft:`3px solid ${evColor(ev)}` }}
+                        ) : todayEvents.length === 0 ? (
+                          <div style={{ color:"#333", fontSize:12, textAlign:"center", padding:"12px 0" }}>
+                            ไม่มีกิจกรรม<br/>
+                            <span style={{ fontSize:11 }}>กด + เพิ่ม เพื่อลงกิจกรรม</span>
+                          </div>
+                        ) : todayEvents.map(ev => (
+                          <div key={ev.id} className="ev-block"
+                            style={{ background:ev.color+"22", borderLeft:`3px solid ${ev.color}` }}
                             onClick={()=>openEditEvent(ev)}>
-                            <div style={{ fontWeight:600, fontSize:13 }}>{ev.summary}</div>
-                            <div style={{ fontSize:11, color:"#aaa", marginTop:1 }}>
-                              {ev.start?.dateTime ? `${formatTime(ev.start.dateTime)} – ${formatTime(ev.end?.dateTime)}` : "ทั้งวัน"}
-                              {ev.location && ` · 📍${ev.location}`}
-                            </div>
+                            <div style={{ fontWeight:600, fontSize:13 }}>{ev.title}</div>
+                            {(ev.start_time || ev.note) && (
+                              <div style={{ fontSize:11, color:"#aaa", marginTop:2 }}>
+                                {ev.start_time && `⏰ ${ev.start_time}${ev.end_time ? " – "+ev.end_time : ""}`}
+                                {ev.note && <span style={{ marginLeft:6 }}>· {ev.note}</span>}
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -767,40 +759,51 @@ Todo วันนี้:\n${todoSum||"ไม่มี"}`);
         <div className="modal-bg" onClick={()=>setModal(null)}>
           <div className="modal" onClick={e=>e.stopPropagation()}>
             <div style={{ display:"flex", alignItems:"center", marginBottom:18 }}>
-              <span style={{ fontWeight:700, fontSize:16 }}>{editTarget?"✏️ แก้ไขกิจกรรม":"➕ กิจกรรมใหม่"}</span>
+              <span style={{ fontWeight:700, fontSize:16 }}>{editTarget?"✏️ แก้ไขกิจกรรม":"📅 เพิ่มกิจกรรม"}</span>
               <div style={{ flex:1 }}/><button className="btn btn-ghost btn-sm" onClick={()=>setModal(null)}>✕</button>
             </div>
             <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-              <div><label>ชื่อกิจกรรม *</label><input value={evForm.summary} onChange={e=>setEvForm(f=>({...f,summary:e.target.value}))} placeholder="เพิ่มชื่อ" autoFocus/></div>
+              <div>
+                <label>ชื่อกิจกรรม *</label>
+                <input value={evForm.title} onChange={e=>setEvForm(f=>({...f,title:e.target.value}))}
+                  placeholder="เช่น ประชุมทีม, ออกกำลังกาย" autoFocus/>
+              </div>
+              <div>
+                <label>วันที่</label>
+                <input type="date" value={evForm.date} onChange={e=>setEvForm(f=>({...f,date:e.target.value}))}/>
+              </div>
               <div style={{ display:"flex", gap:10 }}>
-                <div style={{ flex:1 }}><label>เริ่ม</label><input type={evForm.allDay?"date":"datetime-local"} value={evForm.allDay?evForm.start?.split("T")[0]:evForm.start} onChange={e=>setEvForm(f=>({...f,start:e.target.value}))}/></div>
-                <div style={{ flex:1 }}><label>สิ้นสุด</label><input type={evForm.allDay?"date":"datetime-local"} value={evForm.allDay?evForm.end?.split("T")[0]:evForm.end} onChange={e=>setEvForm(f=>({...f,end:e.target.value}))}/></div>
+                <div style={{ flex:1 }}>
+                  <label>เวลาเริ่ม</label>
+                  <input type="time" value={evForm.start_time} onChange={e=>setEvForm(f=>({...f,start_time:e.target.value}))}/>
+                </div>
+                <div style={{ flex:1 }}>
+                  <label>เวลาสิ้นสุด</label>
+                  <input type="time" value={evForm.end_time} onChange={e=>setEvForm(f=>({...f,end_time:e.target.value}))}/>
+                </div>
               </div>
-              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                <input type="checkbox" id="allday" checked={evForm.allDay} onChange={e=>setEvForm(f=>({...f,allDay:e.target.checked}))} style={{ width:"auto" }}/>
-                <label htmlFor="allday" style={{ margin:0, cursor:"pointer", color:"#bbb" }}>ทั้งวัน</label>
+              <div>
+                <label>หมายเหตุ</label>
+                <input value={evForm.note} onChange={e=>setEvForm(f=>({...f,note:e.target.value}))}
+                  placeholder="รายละเอียดเพิ่มเติม (ถ้ามี)"/>
               </div>
-              <div><label>สถานที่</label><input value={evForm.location} onChange={e=>setEvForm(f=>({...f,location:e.target.value}))} placeholder="เพิ่มสถานที่"/></div>
-              <div><label>รายละเอียด</label><textarea value={evForm.description} onChange={e=>setEvForm(f=>({...f,description:e.target.value}))} rows={2} style={{ resize:"vertical" }}/></div>
               <div>
                 <label>สี</label>
-                <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                  {Object.entries({"1":"#7986CB","2":"#33B679","3":"#8E24AA","4":"#E67C73","5":"#F6BF26","6":"#F4511E","7":"#039BE5","8":"#616161","9":"#3F51B5","10":"#0B8043","11":"#D50000"}).map(([id,c])=>(
-                    <div key={id} onClick={()=>setEvForm(f=>({...f,colorId:id}))}
-                      style={{ width:24,height:24,borderRadius:"50%",background:c,cursor:"pointer",
-                        border:evForm.colorId===id?"3px solid #fff":"3px solid transparent",
-                        transform:evForm.colorId===id?"scale(1.2)":"none",transition:"all .15s" }}/>
+                <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginTop:2 }}>
+                  {EV_COLORS.map(c=>(
+                    <div key={c} onClick={()=>setEvForm(f=>({...f,color:c}))}
+                      style={{ width:28, height:28, borderRadius:"50%", background:c, cursor:"pointer",
+                        border: evForm.color===c ? "3px solid #fff" : "3px solid transparent",
+                        transform: evForm.color===c ? "scale(1.2)" : "none", transition:"all .15s" }}/>
                   ))}
                 </div>
               </div>
             </div>
-            <div style={{ display:"flex", gap:8, marginTop:18 }}>
+            <div style={{ display:"flex", gap:8, marginTop:20 }}>
               {editTarget && <button className="btn btn-red btn-sm" onClick={()=>deleteEvent(editTarget)}>🗑️ ลบ</button>}
               <div style={{ flex:1 }}/>
               <button className="btn btn-ghost" onClick={()=>setModal(null)}>ยกเลิก</button>
-              <button className="btn btn-blue" onClick={saveEvent} disabled={gcalLoading}>
-                {gcalLoading?"กำลังบันทึก...":editTarget?"บันทึก":"เพิ่ม"}
-              </button>
+              <button className="btn btn-blue" onClick={saveEvent}>{editTarget?"บันทึก":"เพิ่มกิจกรรม"}</button>
             </div>
           </div>
         </div>

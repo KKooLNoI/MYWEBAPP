@@ -38,6 +38,17 @@ export function initDB() {
       cat TEXT DEFAULT 'other',
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS events (
+      id TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      date TEXT NOT NULL,
+      start_time TEXT DEFAULT '',
+      end_time TEXT DEFAULT '',
+      note TEXT DEFAULT '',
+      color TEXT DEFAULT '#3b5eda',
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
   `);
 }
 

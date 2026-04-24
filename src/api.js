@@ -38,4 +38,10 @@ export const api = {
     create:  (item)  => apiFetch("/api/finance",       { method: "POST",   body: JSON.stringify(item) }),
     delete:  (id)    => apiFetch(`/api/finance/${id}`, { method: "DELETE" }),
   },
+  events: {
+    getAll:  ()       => apiFetch("/api/events"),
+    create:  (ev)     => apiFetch("/api/events",        { method: "POST",   body: JSON.stringify(ev) }),
+    update:  (id, ev) => apiFetch(`/api/events/${id}`,  { method: "PUT",    body: JSON.stringify(ev) }),
+    delete:  (id)     => apiFetch(`/api/events/${id}`,  { method: "DELETE" }),
+  },
 };

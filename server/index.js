@@ -4,6 +4,7 @@ import { initDB } from "./db.js";
 import authRoutes from "./routes/auth.js";
 import todosRoutes from "./routes/todos.js";
 import financeRoutes from "./routes/finance.js";
+import eventsRoutes from "./routes/events.js";
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -16,6 +17,7 @@ initDB();
 app.use("/api/auth", authRoutes);
 app.use("/api/todos", todosRoutes);
 app.use("/api/finance", financeRoutes);
+app.use("/api/events", eventsRoutes);
 
 // Forward Claude & prices API (proxy fallback)
 app.use("/api/claude", async (req, res) => {
